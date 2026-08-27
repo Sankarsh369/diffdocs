@@ -24,9 +24,10 @@ point `NEXT_PUBLIC_API_URL` at a deployed instance.
 
 ## Environment variables
 
-| Variable              | Description                                              |
-| ---------------------- | --------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL`  | Base URL of the `diffdocs-backend` API (no trailing slash) |
+| Variable                      | Description                                              |
+| ------------------------------ | --------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`          | Base URL of the `diffdocs-backend` API (no trailing slash) |
+| `NEXT_PUBLIC_GITHUB_APP_SLUG`  | Slug of your registered GitHub App; enables the "Install GitHub Application" button. See [backend README](../diffdocs-backend/README.md#registering-a-real-github-app-for-webhookgithub-app) |
 
 See [`.env.local.example`](.env.local.example).
 

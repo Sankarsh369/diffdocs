@@ -17,19 +17,29 @@ code.
 ## How it works
 
 ```
-GitHub commit/PR ──▶ webhook (git diff) ──▶ diffdocs-backend ──▶ Gemini (structured analysis)
-                                                   │                        │
-                                                   ▼                        ▼
-                                          MongoDB Atlas (cache)   diffdocs-frontend dashboard
+GitHub push/PR ──▶ GitHub App webhook ──▶ diffdocs-backend ──fetch diff──▶ GitHub API
+                                                 │
+                                                 ▼
+                                    Gemini (structured analysis)
+                                                 │              │
+                                                 ▼              ▼
+                                     MongoDB Atlas (cache)   diffdocs-frontend dashboard
 ```
 
-1. A signed webhook posts `{repo_identifier, commit_sha, diff_content}` to the backend.
-2. The backend checks MongoDB for a cached analysis of that commit SHA. On a cache miss, it sends
+1. A real installed **GitHub App** (or, for manual testing, a hand-signed request) posts a
+   webhook to the backend on every push/PR.
+2. For the real App path, the backend authenticates as the App, exchanges that for an
+   installation token, and fetches the actual unified diff from the GitHub API — GitHub's
+   webhook payload itself never contains the diff.
+3. The backend checks MongoDB for a cached analysis of that commit SHA. On a cache miss, it sends
    the diff to Gemini with a strict Pydantic response schema, so the model always returns
    well-formed structured output — not free-text.
-3. The result is cached in MongoDB and returned to the caller.
-4. The dashboard (`diffdocs-frontend`) polls `/api/telemetry` and visualizes risk trends, team
+4. The result is cached in MongoDB.
+5. The dashboard (`diffdocs-frontend`) polls `/api/telemetry` and visualizes risk trends, team
    review load, and per-commit breakdowns.
+
+See [`diffdocs-backend/README.md`](diffdocs-backend/README.md#registering-a-real-github-app-for-webhookgithub-app)
+for how to register the GitHub App that drives step 1–2.
 
 ## Repository layout
 

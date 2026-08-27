@@ -5,3 +5,5 @@ pymongo
 google-genai
 python-dotenv
 watchfiles
+httpx
+PyJWT[crypto]

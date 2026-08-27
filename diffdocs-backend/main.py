@@ -1,13 +1,22 @@
 # main.py
 import os
+import sys
 import hmac
 import json
 import hashlib
 from contextlib import asynccontextmanager
+from typing import Optional
 from dotenv import load_dotenv
 
+# Windows' default console codepage (cp1252) can't encode the emoji used in
+# this file's log lines, which otherwise crashes on the very first print at
+# import time. Force UTF-8 stdout/stderr wherever the runtime allows it.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 # FastAPI framework & validation imports
-from fastapi import FastAPI, HTTPException, Request, Header, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -27,6 +36,12 @@ print(f"🔒 Security Status: Key Loaded (Length: {len(os.getenv('WEBHOOK_SECRET
 # ==========================================================
 from database import MongoDatabaseManager
 from engine import DiffDocsEngine
+from github_app import (
+    fetch_commit_diff,
+    fetch_compare_diff,
+    fetch_pull_request_diff,
+    get_installation_token,
+)
 
 # ==========================================
 # ⚡ GLOBAL SINGLETON INSTANCES & LIFESPAN
@@ -180,6 +195,100 @@ async def handle_github_webhook(
     except Exception as err:
         print(f"🚨 Internal pipeline extraction failure: {str(err)}")
         raise HTTPException(status_code=500, detail="Internal core validation pipeline error occurred.")
+
+# ==========================================
+# 🐙 REAL GITHUB APP WEBHOOK ENDPOINT
+# ==========================================
+def _verify_github_app_signature(raw_payload: bytes, signature_header: Optional[str]) -> bool:
+    """
+    Verifies GitHub's own webhook signature scheme: header `X-Hub-Signature-256:
+    sha256=<hex-hmac>`, computed over the raw request body with the App's
+    webhook secret (set on the App itself, distinct from WEBHOOK_SECRET which
+    guards the manual /webhook/github endpoint above).
+    """
+    secret = os.getenv("GITHUB_APP_WEBHOOK_SECRET")
+    if not secret or not signature_header or not signature_header.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+
+async def _process_github_app_event(event_type: str, payload: dict):
+    """
+    Background task: resolves the real unified diff for a push or pull request
+    via the GitHub API (using a short-lived installation token) and routes it
+    through the same cache-then-Gemini pipeline as the manual endpoint.
+    """
+    try:
+        installation_id = payload.get("installation", {}).get("id")
+        if not installation_id:
+            print("🚨 GitHub App event missing installation id — skipping.")
+            return
+
+        if event_type == "push":
+            # Ignore branch/tag deletions and no-op pushes (e.g. an empty force-push).
+            if payload.get("deleted") or not payload.get("commits"):
+                return
+
+            repo_full_name = payload["repository"]["full_name"]
+            owner, repo = repo_full_name.split("/", 1)
+            head_sha = payload["after"]
+            base_sha = payload.get("before")
+
+            token = await get_installation_token(installation_id)
+            # `before` is all zeros on a brand-new branch — nothing to compare against.
+            if base_sha and set(base_sha) != {"0"}:
+                diff_content = await fetch_compare_diff(owner, repo, base_sha, head_sha, token)
+            else:
+                diff_content = await fetch_commit_diff(owner, repo, head_sha, token)
+
+            print(f"🐙 GitHub App push event → analyzing {repo_full_name}@{head_sha[:7]}")
+            await orchestrate_webhook_pipeline(repo=repo_full_name, sha=head_sha, diff_content=diff_content)
+
+        elif event_type == "pull_request" and payload.get("action") in ("opened", "synchronize", "reopened"):
+            repo_full_name = payload["repository"]["full_name"]
+            owner, repo = repo_full_name.split("/", 1)
+            pull_request = payload["pull_request"]
+            head_sha = pull_request["head"]["sha"]
+
+            token = await get_installation_token(installation_id)
+            diff_content = await fetch_pull_request_diff(owner, repo, pull_request["number"], token)
+
+            print(f"🐙 GitHub App PR event → analyzing {repo_full_name}#{pull_request['number']}")
+            await orchestrate_webhook_pipeline(repo=repo_full_name, sha=head_sha, diff_content=diff_content)
+
+    except Exception as err:
+        print(f"🚨 GitHub App event processing failure ({event_type}): {str(err)}")
+
+
+@app.post("/webhook/github-app", status_code=status.HTTP_202_ACCEPTED)
+async def handle_github_app_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: str = Header(None),
+    x_github_event: str = Header(None),
+):
+    """
+    Real GitHub App webhook receiver — this is the URL you register on the App
+    itself. Unlike /webhook/github, GitHub does not send the diff content: this
+    handler fetches it from the GitHub API using an installation token, then
+    hands it to the same analysis pipeline.
+    """
+    raw_payload = await request.body()
+
+    if not _verify_github_app_signature(raw_payload, x_hub_signature_256):
+        raise HTTPException(status_code=403, detail="Invalid GitHub webhook signature.")
+
+    if x_github_event == "ping":
+        return {"status": "pong"}
+
+    if x_github_event in ("push", "pull_request"):
+        payload = await request.json()
+        # Respond immediately — GitHub expects a fast ack, and diff-fetch +
+        # Gemini analysis can take longer than its timeout allows.
+        background_tasks.add_task(_process_github_app_event, x_github_event, payload)
+
+    return {"status": "accepted"}
 
 # Place this inside your existing main.py file right above the uvicorn execution block
 
