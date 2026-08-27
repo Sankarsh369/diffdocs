@@ -16,8 +16,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 # FastAPI framework & validation imports
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Header, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Header, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 # ==========================================================
@@ -37,11 +38,14 @@ print(f"🔒 Security Status: Key Loaded (Length: {len(os.getenv('WEBHOOK_SECRET
 from database import MongoDatabaseManager
 from engine import DiffDocsEngine
 from github_app import (
+    fetch_commit_author,
     fetch_commit_diff,
     fetch_compare_diff,
     fetch_pull_request_diff,
+    fetch_pull_request_reviews,
     get_installation_token,
 )
+import auth as auth_module
 
 # ==========================================
 # ⚡ GLOBAL SINGLETON INSTANCES & LIFESPAN
@@ -103,9 +107,15 @@ class GitHubWebhookPayload(BaseModel):
 # ==========================================
 # 🔄 CORE PIPELINE ORCHESTRATION
 # ==========================================
-async def orchestrate_webhook_pipeline(repo: str, sha: str, diff_content: str):
+async def orchestrate_webhook_pipeline(
+    repo: str,
+    sha: str,
+    diff_content: str,
+    author: Optional[dict] = None,
+    pr_number: Optional[int] = None,
+):
     """Coordinates high-performance caching layer checks and AI analysis processing."""
-    
+
     # Step 1: Hit Cache Layer (Reusing global singleton pool)
     cached_data = await db_manager.get_cached_summary(sha)
     if cached_data:
@@ -117,8 +127,8 @@ async def orchestrate_webhook_pipeline(repo: str, sha: str, diff_content: str):
     structured_ai_output = await engine.generate_summary(diff_content)
 
     # Step 3: Persist analytical output straight to Atlas to freeze future overhead
-    await db_manager.save_summary(repo, sha, structured_ai_output)
-    
+    await db_manager.save_summary(repo, sha, structured_ai_output, author=author, pr_number=pr_number)
+
     return structured_ai_output.model_dump()
 
 # ==========================================
@@ -242,8 +252,12 @@ async def _process_github_app_event(event_type: str, payload: dict):
             else:
                 diff_content = await fetch_commit_diff(owner, repo, head_sha, token)
 
-            print(f"🐙 GitHub App push event → analyzing {repo_full_name}@{head_sha[:7]}")
-            await orchestrate_webhook_pipeline(repo=repo_full_name, sha=head_sha, diff_content=diff_content)
+            # Real GitHub identity behind this commit (not just the payload's
+            # `pusher` field, which is just a git name/email, not an account).
+            author = await fetch_commit_author(owner, repo, head_sha, token)
+
+            print(f"🐙 GitHub App push event → analyzing {repo_full_name}@{head_sha[:7]} (author: {author['login']})")
+            await orchestrate_webhook_pipeline(repo=repo_full_name, sha=head_sha, diff_content=diff_content, author=author)
 
         elif event_type == "pull_request" and payload.get("action") in ("opened", "synchronize", "reopened"):
             repo_full_name = payload["repository"]["full_name"]
@@ -254,8 +268,32 @@ async def _process_github_app_event(event_type: str, payload: dict):
             token = await get_installation_token(installation_id)
             diff_content = await fetch_pull_request_diff(owner, repo, pull_request["number"], token)
 
-            print(f"🐙 GitHub App PR event → analyzing {repo_full_name}#{pull_request['number']}")
-            await orchestrate_webhook_pipeline(repo=repo_full_name, sha=head_sha, diff_content=diff_content)
+            # The PR payload already carries the real author account — no extra API call needed.
+            author = {"login": pull_request["user"]["login"], "avatar_url": pull_request["user"].get("avatar_url")}
+
+            print(f"🐙 GitHub App PR event → analyzing {repo_full_name}#{pull_request['number']} (author: {author['login']})")
+            await orchestrate_webhook_pipeline(
+                repo=repo_full_name, sha=head_sha, diff_content=diff_content,
+                author=author, pr_number=pull_request["number"],
+            )
+
+        elif event_type == "pull_request" and payload.get("action") == "closed" and payload.get("pull_request", {}).get("merged"):
+            # A PR only has its final reviewer roster once it's actually merged —
+            # reviews can keep arriving after we analyzed the diff on `synchronize`.
+            repo_full_name = payload["repository"]["full_name"]
+            owner, repo = repo_full_name.split("/", 1)
+            pull_request = payload["pull_request"]
+            head_sha = pull_request["head"]["sha"]
+
+            token = await get_installation_token(installation_id)
+            reviews = await fetch_pull_request_reviews(owner, repo, pull_request["number"], token)
+
+            # Keep only each reviewer's most recent review state (GitHub returns them chronologically).
+            latest_by_login = {review["login"]: review for review in reviews}
+            reviewers = list(latest_by_login.values())
+
+            print(f"🐙 GitHub App PR merged → attaching {len(reviewers)} real reviewer(s) to {repo_full_name}#{pull_request['number']}")
+            await db_manager.attach_reviewers(commit_sha=head_sha, reviewers=reviewers)
 
     except Exception as err:
         print(f"🚨 GitHub App event processing failure ({event_type}): {str(err)}")
@@ -290,10 +328,61 @@ async def handle_github_app_webhook(
 
     return {"status": "accepted"}
 
-# Place this inside your existing main.py file right above the uvicorn execution block
+# ==========================================
+# 🔑 SIGN IN WITH GITHUB
+# ==========================================
+def _backend_url() -> str:
+    return os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 
+
+def _frontend_url() -> str:
+    return os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+
+@app.get("/auth/github/login")
+async def github_login():
+    """Sends the browser to GitHub's OAuth consent screen."""
+    redirect_uri = f"{_backend_url()}/auth/github/callback"
+    state = auth_module.create_oauth_state()
+    return RedirectResponse(auth_module.build_authorize_url(redirect_uri, state))
+
+
+@app.get("/auth/github/callback")
+async def github_callback(state: str, code: Optional[str] = None, error: Optional[str] = None):
+    """GitHub redirects here after the user approves (or declines) the app."""
+    if not auth_module.verify_oauth_state(state):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
+
+    if error or not code:
+        # User clicked "Cancel" on GitHub's consent screen — send them back, no session issued.
+        return RedirectResponse(f"{_frontend_url()}/?auth_error={error or 'no_code'}")
+
+    try:
+        redirect_uri = f"{_backend_url()}/auth/github/callback"
+        profile = await auth_module.exchange_code_for_profile(code, redirect_uri)
+        session_token = auth_module.issue_session_token(profile)
+    except Exception as err:
+        print(f"🚨 GitHub OAuth exchange failed: {str(err)}")
+        raise HTTPException(status_code=502, detail="GitHub sign-in failed. Please try again.")
+
+    return RedirectResponse(f"{_frontend_url()}/?session_token={session_token}")
+
+
+@app.get("/api/me", status_code=status.HTTP_200_OK)
+async def get_current_profile(current_user: dict = Depends(auth_module.get_current_user)):
+    """Returns the signed-in user's real GitHub profile, decoded from their session token."""
+    return {
+        "login": current_user["login"],
+        "name": current_user["name"],
+        "avatar_url": current_user["avatar_url"],
+    }
+
+
+# ==========================================
+# 📊 DASHBOARD DATA (requires sign-in)
+# ==========================================
 @app.get("/api/telemetry", status_code=status.HTTP_200_OK)
-async def get_all_repository_telemetry():
+async def get_all_repository_telemetry(current_user: dict = Depends(auth_module.get_current_user)):
     """
     Dashboard extraction gateway fetching historical analysis telemetry for frontend visualization.
     """
@@ -308,10 +397,25 @@ async def get_all_repository_telemetry():
     except Exception as err:
         print(f"🚨 Dashboard data compilation failure: {str(err)}")
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Failed to retrieve synchronized telemetry logs."
         )
-     
+
+
+@app.get("/api/team", status_code=status.HTTP_200_OK)
+async def get_team_workload(current_user: dict = Depends(auth_module.get_current_user)):
+    """
+    Real per-contributor authored/reviewed workload, derived from actual
+    GitHub commit authors and PR reviewers — no fictional teammates.
+    """
+    try:
+        workload = await db_manager.get_team_workload()
+        return {"status": "success", "count": len(workload), "data": workload}
+    except Exception as err:
+        print(f"🚨 Team workload compilation failure: {str(err)}")
+        raise HTTPException(status_code=500, detail="Failed to compute team workload.")
+
+
 # ==========================================
 # 🚀 LOCAL RUNTIME CONFIGURATION
 # ==========================================

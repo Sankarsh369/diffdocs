@@ -34,12 +34,16 @@ GitHub push/PR ──▶ GitHub App webhook ──▶ diffdocs-backend ──fet
 3. The backend checks MongoDB for a cached analysis of that commit SHA. On a cache miss, it sends
    the diff to Gemini with a strict Pydantic response schema, so the model always returns
    well-formed structured output — not free-text.
-4. The result is cached in MongoDB.
-5. The dashboard (`diffdocs-frontend`) polls `/api/telemetry` and visualizes risk trends, team
+4. The result is cached in MongoDB, alongside the real commit/PR author and (once a PR merges)
+   its real reviewers — pulled from the GitHub API, not guessed.
+5. After signing in with GitHub (real OAuth — see below), the dashboard (`diffdocs-frontend`)
+   fetches `/api/telemetry` and `/api/team` and visualizes risk trends, real per-contributor
    review load, and per-commit breakdowns.
 
 See [`diffdocs-backend/README.md`](diffdocs-backend/README.md#registering-a-real-github-app-for-webhookgithub-app)
-for how to register the GitHub App that drives step 1–2.
+for how to register the GitHub App that drives step 1–2, and its
+[Sign-in setup](diffdocs-backend/README.md#setting-up-sign-in-with-github) section for the
+separate OAuth App that gates the dashboard behind a real login.
 
 ## Repository layout
 
@@ -95,6 +99,10 @@ See each app's README for exact build/start commands and required environment va
 - The webhook signing secret (`WEBHOOK_SECRET`) is used **only** server-side to verify incoming
   payloads via HMAC — it is never exposed to the frontend or rendered in the dashboard.
 - Restrict `CORS_ORIGINS` on the backend to your actual deployed frontend URL in production.
+- The dashboard requires a real "Sign in with GitHub" session — `/api/telemetry` and `/api/team`
+  reject requests without a valid bearer session token. There is no hardcoded profile or fake
+  "admin" account; the header, profile tab, and Sign Out button all reflect the actual signed-in
+  GitHub user.
 
 ## Roadmap
 

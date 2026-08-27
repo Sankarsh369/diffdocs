@@ -4,15 +4,12 @@ import React, { useState, useEffect } from "react";
 import TeamView from "../components/TeamView";
 import RepositoriesTab from "../components/RepositoriesTab";
 import Header from "../components/Header";
-import { 
-  GitPullRequest, 
-  ShieldCheck, 
-  AlertTriangle, 
-  Activity, 
-  Terminal, 
-  Users, 
-  Settings, 
-  BarChart3, 
+import {
+  GitPullRequest,
+  ShieldCheck,
+  AlertTriangle,
+  Activity,
+  Terminal,
   RefreshCw,
   FileCode,
   CheckCircle2,
@@ -25,24 +22,37 @@ import {
   KeyRound,
   Search,       // ✨ Added for Global Filter Bar
   Download,     // ✨ Added for KPI Exporter
-  Code          // ✨ Added for Inline Diff Inspector
+  Code,         // ✨ Added for Inline Diff Inspector
+  LogOut        // ✨ Added for real Sign Out
 } from "lucide-react";
-import { 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  LineChart, 
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
   Line,
-  BarChart,
-  Bar,
   Legend
 } from "recharts";
+import {
+  DiffDocsUser,
+  authorizedFetch,
+  clearToken,
+  consumeSessionTokenFromUrl,
+  fetchCurrentUser,
+  getStoredToken,
+} from "../lib/auth";
+import SignInScreen from "../components/SignInScreen";
 
 export default function DashboardHome() {
   const [activeTab, setActiveTab] = useState("overview");
-  
+
+  // 🔐 AUTH STATE — real "Sign in with GitHub" session, not a hardcoded profile
+  const [user, setUser] = useState<DiffDocsUser | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
   // ⚡ SYSTEM LIVE DATA STATE
   const [telemetry, setTelemetry] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -54,7 +64,7 @@ export default function DashboardHome() {
   const [dynamicRepos, setDynamicRepos] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // 👥 TEAM ALLOCATION STATE
+  // 👥 TEAM ALLOCATION STATE — real authored/reviewed data from GitHub, fetched separately
   const [realTeamLoad, setRealTeamLoad] = useState<any[]>([]);
 
   // 🎛️ CONFIGURATION SETTINGS STATE
@@ -68,18 +78,43 @@ export default function DashboardHome() {
   // 🔎 NEW: INTERACTIVE LEDGER DIFF TOGGLE STATE
   const [expandedFileIdx, setExpandedFileIdx] = useState<number | null>(null);
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  // On first load: pick up a session token left by the OAuth callback redirect,
+  // fall back to whatever's already stored, then verify it against the backend.
+  useEffect(() => {
+    const token = consumeSessionTokenFromUrl() || getStoredToken();
+    if (!token) {
+      setAuthChecked(true);
+      return;
+    }
+    fetchCurrentUser(token).then((profile) => {
+      if (profile) {
+        setSessionToken(token);
+        setUser(profile);
+      } else {
+        clearToken(); // expired/invalid — fall back to the sign-in screen
+      }
+      setAuthChecked(true);
+    });
+  }, []);
+
+  const handleSignOut = () => {
+    clearToken();
+    setSessionToken(null);
+    setUser(null);
+    setActiveTab("overview");
+  };
 
   const fetchLiveTelemetry = async () => {
+    if (!sessionToken) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/telemetry`);
+      const response = await authorizedFetch("/api/telemetry", sessionToken);
       const result = await response.json();
-      
+
       if (result.status === "success" && result.data) {
         const rawData = result.data;
         setTelemetry(rawData);
-        
+
         if (rawData.length > 0 && !selectedPr) {
           setSelectedPr(rawData[0]);
         }
@@ -88,7 +123,7 @@ export default function DashboardHome() {
           const analysisBlock = item.analysis || {};
           const riskMap: Record<string, number> = { "Low": 20, "Medium": 50, "High": 85 };
           const riskScore = riskMap[analysisBlock.estimated_risk] || 10;
-          
+
           return {
             name: `PR #${rawData.length - idx}`,
             codeChanges: (analysisBlock.features?.length * 150) || 100,
@@ -103,7 +138,7 @@ export default function DashboardHome() {
             repoCounts[item.repo_identifier] = (repoCounts[item.repo_identifier] || 0) + 1;
           }
         });
-        
+
         const aggregatedRepos = Object.keys(repoCounts).map((repoName) => ({
           name: repoName.split("/")[1] || repoName,
           fullName: repoName,
@@ -113,8 +148,7 @@ export default function DashboardHome() {
 
         const highRiskCount = rawData.filter((item: any) => item.analysis?.estimated_risk === "High").length;
         const mediumRiskCount = rawData.filter((item: any) => item.analysis?.estimated_risk === "Medium").length;
-        const lowRiskCount = rawData.filter((item: any) => item.analysis?.estimated_risk === "Low").length;
-        
+
         let aggregateRisk = "Low";
         if (highRiskCount > 0) aggregateRisk = "High";
         else if (mediumRiskCount > rawData.length / 3) aggregateRisk = "Medium";
@@ -125,15 +159,6 @@ export default function DashboardHome() {
           mediumRisk: mediumRiskCount,
           avgRisk: aggregateRisk
         });
-
-        const calculatedLoad = Math.min(100, Math.round(((highRiskCount * 25) + (mediumRiskCount * 12) + (lowRiskCount * 5))));
-
-        setRealTeamLoad([
-          { name: "S. Sankarsha (Lead)", highRiskPrs: highRiskCount, mediumRiskPrs: mediumRiskCount, loadScore: calculatedLoad || 10 },
-          { name: "Alex Riv (Senior)", highRiskPrs: 0, mediumRiskPrs: 0, loadScore: 0 },
-          { name: "Sarah Connor (Dev)", highRiskPrs: 0, mediumRiskPrs: 0, loadScore: 0 },
-          { name: "Bruce Wayne (QA)", highRiskPrs: 0, mediumRiskPrs: 0, loadScore: 0 },
-        ]);
       }
     } catch (error) {
       console.error("🚨 Core connection mismatch:", error);
@@ -142,9 +167,27 @@ export default function DashboardHome() {
     }
   };
 
+  // Real per-contributor authored/reviewed load — computed server-side from
+  // actual GitHub commit authors and PR reviewers. No fictional teammates.
+  const fetchTeamWorkload = async () => {
+    if (!sessionToken) return;
+    try {
+      const response = await authorizedFetch("/api/team", sessionToken);
+      const result = await response.json();
+      if (result.status === "success") {
+        setRealTeamLoad(result.data);
+      }
+    } catch (error) {
+      console.error("🚨 Team workload fetch failed:", error);
+    }
+  };
+
   useEffect(() => {
-    fetchLiveTelemetry();
-  }, []);
+    if (sessionToken) {
+      fetchLiveTelemetry();
+      fetchTeamWorkload();
+    }
+  }, [sessionToken]);
 
   // NOTE: The webhook signing secret lives only in the backend's environment
   // (WEBHOOK_SECRET) and is intentionally never sent to or rendered by the
@@ -155,7 +198,7 @@ export default function DashboardHome() {
     if (telemetry.length === 0) return;
     const reportString = JSON.stringify({
       generatedAt: new Date().toISOString(),
-      workspaceAuditor: "S Sankarsha",
+      workspaceAuditor: user?.login ?? "unknown",
       complianceStatus: "SOC2 Ready / Verified",
       metricsSummary: stats,
       auditLogs: telemetry
@@ -180,11 +223,25 @@ export default function DashboardHome() {
     return sha.includes(query) || repo.includes(query);
   });
 
+  // Block rendering the dashboard until we know whether there's a valid session —
+  // avoids a flash of the (now real) profile UI before auth resolves.
+  if (!authChecked) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
+        <RefreshCw className="h-5 w-5 text-indigo-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user || !sessionToken) {
+    return <SignInScreen />;
+  }
+
   return (
     <div className="flex flex-col h-screen bg-zinc-950 text-zinc-100 font-sans antialiased relative overflow-hidden">
-      
+
       {/* 👑 MODULAR SAAS HEADER INFRASTRUCTURE */}
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Header activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
 
       {/* 💻 CONSTRAINED MAIN WORKING CANVAS */}
       <main className="flex-1 overflow-y-auto z-10 w-full">
@@ -485,7 +542,7 @@ export default function DashboardHome() {
           {/* VIEW 3: REAL-DEAL TEAM COGNITIVE LOAD ANALYTICS          */}
           {/* ========================================================= */}
           {activeTab === "team" && (
-            <TeamView stats={stats} realTeamLoad={realTeamLoad} />
+            <TeamView workload={realTeamLoad} />
           )}
 
           {/* ========================================================= */}
@@ -495,28 +552,48 @@ export default function DashboardHome() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start opacity-0 animate-[fadeIn_0.4s_ease-out_forwards]">
               <div className="bg-zinc-900/20 border border-zinc-800 p-6 rounded-2xl space-y-6 shadow-sm">
                 <div className="flex flex-col items-center text-center space-y-3 pb-4 border-b border-zinc-800/60">
-                  <div className="h-14 w-14 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-2xl flex items-center justify-center font-bold text-white text-lg shadow-xl shadow-indigo-600/10">
-                    SS
-                  </div>
+                  {user.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.avatar_url} alt={user.login} className="h-14 w-14 rounded-2xl shadow-xl shadow-indigo-600/10" />
+                  ) : (
+                    <div className="h-14 w-14 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-2xl flex items-center justify-center font-bold text-white text-lg shadow-xl shadow-indigo-600/10">
+                      {user.login.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
                   <div>
-                    <h2 className="text-base font-bold text-white tracking-tight">S Sankarsha</h2>
-                    <p className="text-xs text-zinc-500 mt-1">Enterprise Infrastructure Administrator</p>
+                    <h2 className="text-base font-bold text-white tracking-tight">{user.name}</h2>
+                    <p className="text-xs text-zinc-500 mt-1">@{user.login}</p>
                   </div>
                   <span className="text-[9px] uppercase font-extrabold tracking-widest bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-md shadow-sm">
-                    Verified Owner
+                    Signed in via GitHub
                   </span>
                 </div>
 
                 <div className="space-y-4 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 flex items-center gap-2"><User className="h-3.5 w-3.5" /> Workspace Profile ID</span>
-                    <span className="font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 border border-zinc-800 rounded">usr_sankarsha369</span>
+                    <span className="text-zinc-500 flex items-center gap-2"><User className="h-3.5 w-3.5" /> GitHub Login</span>
+                    <a
+                      href={`https://github.com/${user.login}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-indigo-400 hover:text-indigo-300 bg-zinc-900 px-2 py-0.5 border border-zinc-800 rounded"
+                    >
+                      @{user.login}
+                    </a>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 flex items-center gap-2"><GitBranch className="h-3.5 w-3.5" /> Authorization Scope</span>
-                    <span className="font-semibold text-indigo-400">Full Cluster Administrator</span>
+                    <span className="text-zinc-500 flex items-center gap-2"><GitBranch className="h-3.5 w-3.5" /> Session</span>
+                    <span className="font-semibold text-zinc-300">Active (OAuth)</span>
                   </div>
                 </div>
+
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-950 hover:bg-rose-500/10 border border-zinc-800 hover:border-rose-500/30 text-zinc-400 hover:text-rose-400 font-semibold rounded-xl transition-all cursor-pointer text-xs"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign Out
+                </button>
               </div>
 
               <div className="lg:col-span-2 space-y-6">

@@ -2,13 +2,15 @@
 
 import React from "react";
 import { BarChart3, FolderGit2, Users } from "lucide-react";
+import { DiffDocsUser } from "../lib/auth";
 
 interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  user: DiffDocsUser;
 }
 
-export default function Header({ activeTab, setActiveTab }: HeaderProps) {
+export default function Header({ activeTab, setActiveTab, user }: HeaderProps) {
   return (
     <header className="w-full border-b border-zinc-800/80 bg-zinc-900/30 backdrop-blur-xl px-8 py-4 flex items-center justify-between shrink-0 z-20 shadow-sm">
       <div className="flex items-center gap-8">
@@ -64,11 +66,16 @@ export default function Header({ activeTab, setActiveTab }: HeaderProps) {
             : "bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900"
       }`}
       >
-        <div className="h-6 w-6 bg-gradient-to-br from-indigo-500 to-violet-500 rounded-md border border-indigo-400/20 flex items-center justify-center font-bold text-white text-[10px] shrink-0 shadow">
-          SS
-        </div>
+        {user.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={user.avatar_url} alt={user.login} className="h-6 w-6 rounded-md border border-indigo-400/20 shrink-0 shadow" />
+        ) : (
+          <div className="h-6 w-6 bg-gradient-to-br from-indigo-500 to-violet-500 rounded-md border border-indigo-400/20 flex items-center justify-center font-bold text-white text-[10px] shrink-0 shadow">
+            {user.login.slice(0, 2).toUpperCase()}
+          </div>
+        )}
         <div className="truncate flex-1">
-          <p className="text-[11px] font-bold text-zinc-200 truncate">S Sankarsha</p>
+          <p className="text-[11px] font-bold text-zinc-200 truncate">{user.name}</p>
         </div>
       </button>
     </header>

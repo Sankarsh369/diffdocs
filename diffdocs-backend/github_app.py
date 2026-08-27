@@ -99,3 +99,51 @@ async def fetch_pull_request_diff(owner: str, repo: str, pr_number: int, token: 
         )
         response.raise_for_status()
         return response.text
+
+
+async def fetch_commit_author(owner: str, repo: str, sha: str, token: str) -> dict:
+    """
+    Real GitHub identity behind a commit (for a push event, which — unlike a
+    pull_request payload — doesn't include the pusher's account in a
+    trustworthy way). Falls back to the raw git commit signature if the
+    author isn't a linked GitHub account.
+    """
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits/{sha}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    github_author = data.get("author")
+    if github_author and github_author.get("login"):
+        return {"login": github_author["login"], "avatar_url": github_author.get("avatar_url")}
+
+    git_author_name = data.get("commit", {}).get("author", {}).get("name", "unknown")
+    return {"login": git_author_name, "avatar_url": None}
+
+
+async def fetch_pull_request_reviews(owner: str, repo: str, pr_number: int, token: str) -> list[dict]:
+    """
+    Real reviewers for a pull request, e.g. [{"login": "octocat", "avatar_url":
+    "...", "state": "APPROVED"}, ...]. One reviewer can appear more than once
+    (re-reviews); callers that want a unique roster should dedupe by login.
+    """
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        )
+        response.raise_for_status()
+        reviews = response.json()
+
+    return [
+        {
+            "login": review["user"]["login"],
+            "avatar_url": review["user"].get("avatar_url"),
+            "state": review["state"],
+        }
+        for review in reviews
+        if review.get("user")
+    ]

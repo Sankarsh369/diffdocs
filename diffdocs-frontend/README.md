@@ -22,6 +22,10 @@ Open [http://localhost:3000](http://localhost:3000). By default it talks to a ba
 locally at `http://127.0.0.1:8000` — start [`diffdocs-backend`](../diffdocs-backend) first, or
 point `NEXT_PUBLIC_API_URL` at a deployed instance.
 
+The dashboard requires signing in with GitHub (real OAuth, handled entirely by the backend — see
+its README's [Sign-in setup](../diffdocs-backend/README.md#setting-up-sign-in-with-github)). There
+is no bypass: `/api/telemetry` and `/api/team` both reject requests without a valid session.
+
 ## Environment variables
 
 | Variable                      | Description                                              |
