@@ -6,8 +6,11 @@ features, bug fixes, refactors, breaking changes, and an overall risk rating —
 and changelogs stop being a chore, and stakeholders can see exactly what shipped without reading
 code.
 
-👉 **Live demo:** _coming soon — see [Deployment](#deployment) below_
+👉 **Live demo:** [diffdocs-frontend.vercel.app](https://diffdocs-frontend.vercel.app) (dashboard, backed by a live API at [diffdocs-backend.onrender.com](https://diffdocs-backend.onrender.com))
 👉 **Waitlist / landing page:** [Sankarsh369.github.io/diffdocs-waitlist](https://Sankarsh369.github.io/diffdocs-waitlist/)
+
+> Note: the backend runs on Render's free tier, which spins down after periods of inactivity —
+> the first request after a while may take ~30-60s to wake it up.
 
 ---
 
@@ -65,9 +68,15 @@ npm run dev                                      # http://localhost:3000
 
 ## Deployment
 
-The backend deploys to [Render](https://render.com) (blueprint at [`render.yaml`](render.yaml))
-and the frontend to [Vercel](https://vercel.com/new). See each app's README for exact build/start
-commands and required environment variables.
+Deployed exactly as described below — the live demo above runs on this setup:
+
+- **Backend** → [Render](https://render.com), via the [`render.yaml`](render.yaml) blueprint
+- **Frontend** → [Vercel](https://vercel.com/new), root directory `diffdocs-frontend`,
+  `NEXT_PUBLIC_API_URL` pointing at the Render service URL
+- Render's `CORS_ORIGINS` env var is set to the exact Vercel URL (no trailing slash — CORS does
+  literal origin matching)
+
+See each app's README for exact build/start commands and required environment variables.
 
 ## Security notes
 
