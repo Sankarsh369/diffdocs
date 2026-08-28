@@ -14,8 +14,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Sliders,
-  User,
-  GitBranch,
   KeyRound,
   Mail,
   Building2,
@@ -23,7 +21,8 @@ import {
   Link2,
   CalendarDays,
   Users,
-  FolderGit2,
+  ChevronRight,
+  Camera,
   Search,       // ✨ Added for Global Filter Bar
   Download,     // ✨ Added for KPI Exporter
   Code,         // ✨ Added for Inline Diff Inspector
@@ -49,6 +48,49 @@ import {
 } from "../lib/auth";
 import SignInScreen from "../components/SignInScreen";
 import AccessDeniedScreen from "../components/AccessDeniedScreen";
+
+// A single row in the "My Profile" card — icon + label on the left, either a
+// plain value or (when `href` is given) a chevron-tipped link on the right,
+// mirroring the mobile profile-list pattern this was designed after.
+function ProfileRow({
+  icon: Icon,
+  label,
+  value,
+  href,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  href?: string;
+}) {
+  const content = (
+    <>
+      <div className="flex items-center gap-3 min-w-0">
+        <Icon className="h-4 w-4 text-zinc-500 shrink-0" />
+        <span className="text-xs font-semibold text-zinc-300">{label}</span>
+      </div>
+      <div className="flex items-center gap-1.5 min-w-0 pl-4">
+        <span className="text-xs text-zinc-400 truncate" title={value}>{value}</span>
+        {href && <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />}
+      </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-zinc-900/50 transition-colors"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <div className="flex items-center justify-between px-3 py-2.5 rounded-xl">{content}</div>;
+}
 
 export default function DashboardHome() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -547,100 +589,83 @@ export default function DashboardHome() {
           )}
 
           {/* ========================================================= */}
-          {/* 👤 VIEW 4: INTEGRATED USER PROFILE PROFILE & CONTROLS VAULT */}
+          {/* 👤 VIEW 4: MY PROFILE — real GitHub identity + preferences */}
           {/* ========================================================= */}
           {activeTab === "profile" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start opacity-0 animate-[fadeIn_0.4s_ease-out_forwards]">
-              <div className="bg-zinc-900/20 border border-zinc-800 p-6 rounded-2xl space-y-6 shadow-sm">
-                <div className="flex flex-col items-center text-center space-y-3 pb-4 border-b border-zinc-800/60">
-                  {user.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={user.avatar_url} alt={user.login} className="h-14 w-14 rounded-2xl shadow-xl shadow-indigo-600/10" />
-                  ) : (
-                    <div className="h-14 w-14 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-2xl flex items-center justify-center font-bold text-white text-lg shadow-xl shadow-indigo-600/10">
-                      {user.login.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                  <div>
-                    <h2 className="text-base font-bold text-white tracking-tight">{user.name}</h2>
-                    <p className="text-xs text-zinc-500 mt-1">@{user.login}</p>
-                  </div>
-                  <span className="text-[9px] uppercase font-extrabold tracking-widest bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-md shadow-sm">
-                    Signed in via GitHub
-                  </span>
-                </div>
+            <div className="max-w-md mx-auto opacity-0 animate-[fadeIn_0.4s_ease-out_forwards]">
+              <div className="bg-zinc-900/30 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden">
 
-                <div className="space-y-4 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 flex items-center gap-2"><User className="h-3.5 w-3.5" /> GitHub Login</span>
+                {/* Header: avatar + name/email + primary action, mirroring a mobile profile card */}
+                <div className="p-6 pb-5 flex items-center gap-4 border-b border-zinc-800/60">
+                  <div className="relative shrink-0">
+                    {user.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={user.avatar_url} alt={user.login} className="h-16 w-16 rounded-full shadow-lg" />
+                    ) : (
+                      <div className="h-16 w-16 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-full flex items-center justify-center font-bold text-white text-lg shadow-lg">
+                        {user.login.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
                     <a
-                      href={`https://github.com/${user.login}`}
+                      href="https://github.com/settings/profile"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-mono text-indigo-400 hover:text-indigo-300 bg-zinc-900 px-2 py-0.5 border border-zinc-800 rounded"
+                      title="Edit your avatar on GitHub"
+                      className="absolute -bottom-1 -right-1 h-6 w-6 bg-zinc-800 border-2 border-zinc-900 rounded-full flex items-center justify-center text-zinc-300 hover:text-white hover:bg-indigo-600 transition-colors"
                     >
-                      @{user.login}
+                      <Camera className="h-3 w-3" />
                     </a>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 flex items-center gap-2"><GitBranch className="h-3.5 w-3.5" /> Session</span>
-                    <span className="font-semibold text-zinc-300">Active (OAuth)</span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-base font-bold text-white tracking-tight truncate">{user.name}</h2>
+                    <p className="text-xs text-zinc-500 truncate">{user.email ?? `@${user.login}`}</p>
                   </div>
-                  {user.email && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> Email</span>
-                      <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={user.email}>{user.email}</span>
-                    </div>
-                  )}
-                  {user.company && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><Building2 className="h-3.5 w-3.5" /> Company</span>
-                      <span className="font-semibold text-zinc-300 truncate max-w-[160px]">{user.company}</span>
-                    </div>
-                  )}
-                  {user.location && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><MapPin className="h-3.5 w-3.5" /> Location</span>
-                      <span className="font-semibold text-zinc-300 truncate max-w-[160px]">{user.location}</span>
-                    </div>
-                  )}
+                </div>
+
+                <div className="px-6 pt-5">
+                  <a
+                    href={`https://github.com/${user.login}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
+                  >
+                    View GitHub Profile
+                  </a>
+                </div>
+
+                {/* Real profile detail rows — each only rendered when GitHub actually has that field */}
+                <div className="px-3 py-4 space-y-0.5">
+                  {user.email && <ProfileRow icon={Mail} label="Email" value={user.email} />}
+                  {user.company && <ProfileRow icon={Building2} label="Company" value={user.company} />}
+                  {user.location && <ProfileRow icon={MapPin} label="Location" value={user.location} />}
                   {user.blog && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><Link2 className="h-3.5 w-3.5" /> Website</span>
-                      <a
-                        href={user.blog.startsWith("http") ? user.blog : `https://${user.blog}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold text-indigo-400 hover:text-indigo-300 truncate max-w-[160px]"
-                      >
-                        {user.blog}
-                      </a>
-                    </div>
+                    <ProfileRow
+                      icon={Link2}
+                      label="Website"
+                      value={user.blog}
+                      href={user.blog.startsWith("http") ? user.blog : `https://${user.blog}`}
+                    />
                   )}
                   {user.github_created_at && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5" /> On GitHub since</span>
-                      <span className="font-semibold text-zinc-300">{new Date(user.github_created_at).toLocaleDateString(undefined, { year: "numeric", month: "short" })}</span>
-                    </div>
+                    <ProfileRow
+                      icon={CalendarDays}
+                      label="On GitHub since"
+                      value={new Date(user.github_created_at).toLocaleDateString(undefined, { year: "numeric", month: "short" })}
+                    />
                   )}
                   {(user.followers != null || user.public_repos != null) && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-500 flex items-center gap-2"><Users className="h-3.5 w-3.5" /> Followers / Repos</span>
-                      <span className="font-semibold text-zinc-300 flex items-center gap-1.5">
-                        {user.followers ?? 0}
-                        <FolderGit2 className="h-3 w-3 text-zinc-600 ml-1" />
-                        {user.public_repos ?? 0}
-                      </span>
-                    </div>
+                    <ProfileRow icon={Users} label="Followers / Repos" value={`${user.followers ?? 0} / ${user.public_repos ?? 0}`} />
                   )}
                 </div>
 
                 {user.bio && (
-                  <p className="text-xs text-zinc-400 leading-relaxed border-t border-zinc-800/60 pt-4 italic">&ldquo;{user.bio}&rdquo;</p>
+                  <div className="px-6 pb-5">
+                    <p className="text-xs text-zinc-400 leading-relaxed italic border-l-2 border-zinc-800 pl-3">&ldquo;{user.bio}&rdquo;</p>
+                  </div>
                 )}
 
                 {user.social_accounts && user.social_accounts.length > 0 && (
-                  <div className="border-t border-zinc-800/60 pt-4 space-y-2">
+                  <div className="px-6 pb-5 space-y-2">
                     <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-500">Connected accounts</p>
                     <div className="flex flex-wrap gap-1.5">
                       {user.social_accounts.map((account, i) => (
@@ -658,79 +683,74 @@ export default function DashboardHome() {
                   </div>
                 )}
 
-                <button
-                  onClick={handleSignOut}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-950 hover:bg-rose-500/10 border border-zinc-800 hover:border-rose-500/30 text-zinc-400 hover:text-rose-400 font-semibold rounded-xl transition-all cursor-pointer text-xs"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Sign Out
-                </button>
-              </div>
+                {/* Preferences */}
+                <div className="border-t border-zinc-800/60 px-3 py-4 space-y-0.5">
+                  <p className="px-3 pb-2 text-[10px] uppercase font-bold tracking-wider text-zinc-500">Preferences</p>
 
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-zinc-900/20 border border-zinc-800 p-6 rounded-2xl space-y-4 shadow-sm">
-                  <div className="flex items-center gap-2.5 text-indigo-400">
-                    <KeyRound className="h-4 w-4" />
-                    <h3 className="text-sm font-semibold text-white">System Cryptographic Vault Tokens</h3>
+                  <div className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-zinc-900/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0 pr-4">
+                      <Sliders className="h-4 w-4 text-zinc-500 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-zinc-200">PR Commentary Feed</p>
+                        <p className="text-[11px] text-zinc-500">Write review summaries back as PR comments.</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setPrComments(!prComments)} className={`w-10 h-6 rounded-full p-1 transition-colors duration-200 shrink-0 cursor-pointer ${prComments ? "bg-indigo-600" : "bg-zinc-800"}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-200 ${prComments ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
                   </div>
-                  <p className="text-xs text-zinc-500 max-w-2xl leading-relaxed">
-                    Your webhook signing secret authorizes incoming GitHub payloads. For security it lives only in the
-                    backend&apos;s environment configuration (<code className="text-zinc-300 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-800 font-mono">WEBHOOK_SECRET</code>)
-                    and is never transmitted to or displayed in this dashboard.
-                  </p>
-                  <div className="flex items-center gap-3 bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl font-mono text-xs max-w-xl justify-between shadow-inner">
-                    <span className="text-zinc-300 font-medium tracking-wide">
-                      ••••••••••••••••••••••••••••
-                    </span>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-600">Server-side only</span>
+
+                  <div className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-zinc-900/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0 pr-4">
+                      <ShieldCheck className="h-4 w-4 text-zinc-500 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-zinc-200">Deployment Blocking</p>
+                        <p className="text-[11px] text-zinc-500">Flag GitHub status checks above a risk threshold.</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setPolicyBlocking(!policyBlocking)} className={`w-10 h-6 rounded-full p-1 transition-colors duration-200 shrink-0 cursor-pointer ${policyBlocking ? "bg-indigo-600" : "bg-zinc-800"}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-200 ${policyBlocking ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+
+                  {policyBlocking && (
+                    <div className="px-3 pt-1 pb-2 space-y-2.5 animate-in slide-in-from-top-2 duration-200">
+                      <div className="flex justify-between text-xs">
+                        <span className="font-semibold text-zinc-300">Risk threshold</span>
+                        <span className="font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">{riskThreshold} / 100</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="50"
+                        max="95"
+                        value={riskThreshold}
+                        onChange={(e) => setRiskThreshold(Number(e.target.value))}
+                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex items-center gap-3 min-w-0 pr-4">
+                      <KeyRound className="h-4 w-4 text-zinc-500 shrink-0" />
+                      <p className="text-xs font-semibold text-zinc-200">Webhook signing secret</p>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-600 shrink-0">Server-side only</span>
                   </div>
                 </div>
 
-                <div className="bg-zinc-900/20 border border-zinc-800 p-6 rounded-2xl space-y-6 shadow-sm">
-                  <div className="flex items-center gap-2.5 text-indigo-400">
-                    <Sliders className="h-4 w-4" />
-                    <h3 className="text-sm font-semibold text-white">Automated Policy Enforcement Switches</h3>
-                  </div>
-
-                  <div className="space-y-5 max-w-3xl divide-y divide-zinc-800/40 text-left">
-                    <div className="flex items-center justify-between pt-0">
-                      <div className="space-y-1 pr-6">
-                        <p className="text-xs font-semibold text-zinc-200">Interactive PR Commentary Analysis Feed</p>
-                        <p className="text-[11px] text-zinc-500 leading-relaxed">Automatically write back code review metric summary matrices directly as comments inside incoming GitHub Pull Requests conversation records.</p>
-                      </div>
-                      <button onClick={() => setPrComments(!prComments)} className={`w-10 h-6 rounded-full p-1 transition-colors duration-200 shrink-0 cursor-pointer ${prComments ? "bg-indigo-600" : "bg-zinc-800"}`}>
-                        <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-200 ${prComments ? "translate-x-4" : "translate-x-0"} `} />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-5">
-                      <div className="space-y-1 pr-6">
-                        <p className="text-xs font-semibold text-zinc-200">Automated Pull Request Deployment Blocking (Policy Engine)</p>
-                        <p className="text-[11px] text-zinc-500 leading-relaxed">Instruct the backend core pipeline to inject failure commits flags onto GitHub status parameters when incoming code blocks cross risk threshold coordinates.</p>
-                      </div>
-                      <button onClick={() => setPolicyBlocking(!policyBlocking)} className={`w-10 h-6 rounded-full p-1 transition-colors duration-200 shrink-0 cursor-pointer ${policyBlocking ? "bg-indigo-600" : "bg-zinc-800"}`}>
-                        <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-200 ${policyBlocking ? "translate-x-4" : "translate-x-0"} `} />
-                      </button>
-                    </div>
-
-                    {policyBlocking && (
-                      <div className="pt-5 space-y-3.5 animate-in slide-in-from-top-2 duration-200">
-                        <div className="flex justify-between text-xs">
-                          <span className="font-semibold text-zinc-300">Enforcement Intercept Threshold Level</span>
-                          <span className="font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">{riskThreshold} / 100 Risk Score</span>
-                        </div>
-                        <input 
-                          type="range" 
-                          min="50" 
-                          max="95" 
-                          value={riskThreshold}
-                          onChange={(e) => setRiskThreshold(Number(e.target.value))}
-                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                        />
-                      </div>
-                    )}
-                  </div>
+                {/* Sign out — styled like the reference's red "Log Out" row */}
+                <div className="border-t border-zinc-800/60 px-3 py-2">
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-rose-500/5 text-rose-400 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign Out
+                  </button>
                 </div>
+
+                <p className="text-center text-[10px] text-zinc-600 pb-5">DiffDocs Core v1.0.0</p>
               </div>
             </div>
           )}
