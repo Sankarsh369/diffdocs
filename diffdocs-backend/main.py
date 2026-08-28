@@ -5,7 +5,7 @@ import hmac
 import json
 import hashlib
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import List, Optional
 from dotenv import load_dotenv
 
 # Windows' default console codepage (cp1252) can't encode the emoji used in
@@ -395,42 +395,61 @@ async def get_current_profile(current_user: dict = Depends(auth_module.get_curre
 
 
 # ==========================================
-# 🔐 ACCESS CONTROL: scope data to whoever actually installed the App
+# 🔐 ACCESS CONTROL: scope data to the CALLER's own installation(s) only
 # ==========================================
-async def _installation_account_logins() -> set:
-    installations = await list_installations()
-    return {i["account_login"].lower() for i in installations if i.get("account_login")}
+# This is a shared collection: many different GitHub accounts can each have
+# the App installed on their own repos. Being signed in proves who you are —
+# it does NOT entitle you to another account's connected repos or commit
+# history. Every data-returning endpoint below must resolve the caller's own
+# repos and filter to exactly that set; a "some installation exists" check
+# alone (as this used to be) lets one legitimate installer see every OTHER
+# installer's data too, since none of the underlying queries were scoped.
+async def _get_user_repositories(current_user: dict) -> List[dict]:
+    """Real repo dicts from ONLY the installation(s) belonging to the signed-in user's own account."""
+    login = current_user["login"].lower()
+    repos: List[dict] = []
+    for installation in await list_installations():
+        if not installation.get("account_login") or installation["account_login"].lower() != login:
+            continue  # someone else's installation — never include their repos here
+        token = await get_installation_token(installation["id"])
+        repos.extend(await list_installation_repositories(installation["id"], token))
+    return repos
 
 
-async def _require_repo_access(current_user: dict):
-    """
-    This deployment's commit/repo/team data belongs to whichever GitHub
-    account(s) actually installed the App — being signed in proves who you
-    are, not that you're entitled to see someone else's connected repos.
-    Without this check, ANY GitHub user who signs in would see the App
-    owner's private data, since none of these endpoints otherwise filter by
-    who's asking.
-    """
-    allowed = await _installation_account_logins()
-    if current_user["login"].lower() not in allowed:
+async def _require_user_repos(current_user: dict) -> List[dict]:
+    """Returns the caller's own connected repos, or 403s if they have none."""
+    repos = await _get_user_repositories(current_user)
+    if not repos:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your GitHub account has no repositories connected to this DiffDocs instance.",
         )
+    return repos
+
+
+async def _find_installation_for_owner(owner: str) -> Optional[int]:
+    """Finds which of the App's installations covers a given account/org login."""
+    installations = await list_installations()
+    for installation in installations:
+        if installation["account_login"] and installation["account_login"].lower() == owner.lower():
+            return installation["id"]
+    return None
 
 
 # ==========================================
-# 📊 DASHBOARD DATA (requires sign-in + repo access)
+# 📊 DASHBOARD DATA (requires sign-in + own repo access)
 # ==========================================
 @app.get("/api/telemetry", status_code=status.HTTP_200_OK)
 async def get_all_repository_telemetry(current_user: dict = Depends(auth_module.get_current_user)):
     """
-    Dashboard extraction gateway fetching historical analysis telemetry for frontend visualization.
+    Dashboard extraction gateway fetching historical analysis telemetry for
+    frontend visualization — scoped to the caller's own connected repos only.
     """
-    await _require_repo_access(current_user)
+    user_repos = await _require_user_repos(current_user)
+    allowed_repo_names = [r["full_name"] for r in user_repos]
     try:
         # Pull records out of MongoDB Atlas via your global singleton pool manager
-        historical_records = await db_manager.get_all_summaries()
+        historical_records = await db_manager.get_all_summaries(allowed_repos=allowed_repo_names)
         return {
             "status": "success",
             "count": len(historical_records),
@@ -451,14 +470,21 @@ async def get_team_workload(
 ):
     """
     Real per-contributor authored/reviewed workload, derived from actual
-    GitHub commit authors and PR reviewers — no fictional teammates.
+    GitHub commit authors and PR reviewers — no fictional teammates, and
+    scoped to the caller's own connected repos only.
 
-    Pass ?repo=owner/repo to scope this to one connected repo instead of
-    blending every connected repo's contributors together.
+    Pass ?repo=owner/repo to scope this to one of YOUR connected repos
+    instead of blending all of them together — requesting a repo you don't
+    own is rejected, not silently ignored.
     """
-    await _require_repo_access(current_user)
+    user_repos = await _require_user_repos(current_user)
+    allowed_repo_names = [r["full_name"] for r in user_repos]
+
+    if repo and repo not in allowed_repo_names:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to that repository.")
+
     try:
-        workload = await db_manager.get_team_workload(repo_identifier=repo)
+        workload = await db_manager.get_team_workload(allowed_repos=[repo] if repo else allowed_repo_names)
         return {"status": "success", "count": len(workload), "data": workload}
     except Exception as err:
         print(f"🚨 Team workload compilation failure: {str(err)}")
@@ -468,35 +494,21 @@ async def get_team_workload(
 # ==========================================
 # 📁 REAL CONNECTED REPOSITORIES + PR BACKFILL
 # ==========================================
-async def _find_installation_for_owner(owner: str) -> Optional[int]:
-    """Finds which of the App's installations covers a given account/org login."""
-    installations = await list_installations()
-    for installation in installations:
-        if installation["account_login"] and installation["account_login"].lower() == owner.lower():
-            return installation["id"]
-    return None
-
-
 @app.get("/api/repositories", status_code=status.HTTP_200_OK)
 async def get_connected_repositories(current_user: dict = Depends(auth_module.get_current_user)):
     """
-    Every repo the GitHub App is actually installed on, across every
-    installation — not just the ones that happen to already have an analyzed
-    commit. Cross-referenced with real commit counts where available.
+    Every repo the GitHub App is installed on for the CALLER's own account —
+    not every installation across every account. Cross-referenced with real
+    commit counts where available.
     """
-    await _require_repo_access(current_user)
+    user_repos = await _require_user_repos(current_user)
     try:
-        commit_counts = await db_manager.get_commit_counts_by_repo()
-        repositories = []
-
-        for installation in await list_installations():
-            token = await get_installation_token(installation["id"])
-            for repo in await list_installation_repositories(installation["id"], token):
-                repositories.append({
-                    **repo,
-                    "commits_analyzed": commit_counts.get(repo["full_name"], 0),
-                })
-
+        allowed_repo_names = [r["full_name"] for r in user_repos]
+        commit_counts = await db_manager.get_commit_counts_by_repo(allowed_repos=allowed_repo_names)
+        repositories = [
+            {**repo, "commits_analyzed": commit_counts.get(repo["full_name"], 0)}
+            for repo in user_repos
+        ]
         return {"status": "success", "count": len(repositories), "data": repositories}
     except Exception as err:
         print(f"🚨 Repository listing failure: {str(err)}")
@@ -546,7 +558,11 @@ async def sync_repository(
     recently updated) — for repos that had activity before the App was
     installed, or that only ever used PRs rather than direct pushes.
     """
-    await _require_repo_access(current_user)
+    user_repos = await _require_user_repos(current_user)
+    if f"{owner}/{repo}" not in {r["full_name"] for r in user_repos}:
+        # Blocks a legitimate installer from triggering a backfill (and its
+        # Gemini/API cost) against a repo that belongs to a different account.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to that repository.")
 
     installation_id = await _find_installation_for_owner(owner)
     if installation_id is None:

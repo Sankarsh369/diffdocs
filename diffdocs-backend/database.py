@@ -68,10 +68,17 @@ class MongoDatabaseManager:
             print(f"⚠️  No cached analysis found for commit {commit_sha} — reviewers not attached.")
 
     # 🔥 NEWLY ADDED: Fetches all analytics logs and converts ObjectIds to strings
-    async def get_all_summaries(self) -> List[Dict[str, Any]]:
-        """Retrieves all historical telemetry documents, sorted by newest first."""
-        # Find all documents ({}) and sort by creation timestamp descending (-1)
-        cursor = self.collection.find({}).sort("created_at", -1)
+    async def get_all_summaries(self, allowed_repos: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves historical telemetry documents, sorted by newest first.
+
+        `allowed_repos` MUST be passed with the caller's own connected repos
+        in any multi-tenant context — this is a shared collection holding
+        every repo any account has ever connected, and without this filter
+        one account's data leaks straight into another's dashboard.
+        """
+        query = {"repo_identifier": {"$in": allowed_repos}} if allowed_repos is not None else {}
+        cursor = self.collection.find(query).sort("created_at", -1)
         records = await cursor.to_list(length=100) # Grabs the latest 100 entries
 
         # Safe JSON Conversion: Transform BSON ObjectId elements into standard strings
@@ -81,21 +88,26 @@ class MongoDatabaseManager:
 
         return records
 
-    async def get_commit_counts_by_repo(self) -> Dict[str, int]:
-        """Number of cached analyses per repo_identifier, across the full collection (not just the latest 100)."""
-        cursor = self.collection.aggregate([{"$group": {"_id": "$repo_identifier", "count": {"$sum": 1}}}])
+    async def get_commit_counts_by_repo(self, allowed_repos: Optional[List[str]] = None) -> Dict[str, int]:
+        """Number of cached analyses per repo_identifier, scoped to `allowed_repos` when given."""
+        pipeline = []
+        if allowed_repos is not None:
+            pipeline.append({"$match": {"repo_identifier": {"$in": allowed_repos}}})
+        pipeline.append({"$group": {"_id": "$repo_identifier", "count": {"$sum": 1}}})
+        cursor = self.collection.aggregate(pipeline)
         return {doc["_id"]: doc["count"] async for doc in cursor if doc["_id"]}
 
-    async def get_team_workload(self, repo_identifier: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_team_workload(self, allowed_repos: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Aggregates real per-contributor workload from stored analyses: who
         authored what (and at what risk level), and who actually reviewed it
         on GitHub — no fictional teammates, no guessed assignments.
 
-        Pass `repo_identifier` (e.g. "owner/repo") to scope this to one
-        connected repo instead of blending every repo together.
+        `allowed_repos` scopes this to specific repo_identifier(s) — pass the
+        caller's own connected repos in any multi-tenant context, or a
+        single-repo list to scope the view to just one repo.
         """
-        query = {"repo_identifier": repo_identifier} if repo_identifier else {}
+        query = {"repo_identifier": {"$in": allowed_repos}} if allowed_repos is not None else {}
         cursor = self.collection.find(query, {"analysis.estimated_risk": 1, "author": 1, "reviewers": 1})
         records = await cursor.to_list(length=500)
 
