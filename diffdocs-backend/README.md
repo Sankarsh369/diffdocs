@@ -53,6 +53,8 @@ See [`.env.example`](.env.example). **Never commit your real `.env` file.**
 | GET    | `/api/me`            | Bearer session token | The signed-in user's real GitHub profile                       |
 | GET    | `/api/telemetry`     | Bearer session token | Most recent 100 cached analyses, newest first, for the dashboard |
 | GET    | `/api/team`          | Bearer session token | Real per-contributor authored/reviewed workload (see below)      |
+| GET    | `/api/repositories`  | Bearer session token | Every repo the GitHub App is actually installed on, across all installations — not just ones with existing analysis |
+| POST   | `/api/repositories/{owner}/{repo}/sync` | Bearer session token | Backfills analysis for that repo's 15 most recently updated pull requests (for activity that predates the App install) |
 
 ### Registering a real GitHub App (for `/webhook/github-app`)
 

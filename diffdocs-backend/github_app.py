@@ -53,6 +53,83 @@ def _generate_app_jwt() -> str:
     return jwt.encode(payload, _load_private_key(), algorithm="RS256")
 
 
+async def list_installations() -> list[dict]:
+    """
+    Every account/org the App is installed on, e.g.
+    [{"id": 12345, "account_login": "octocat", "account_avatar_url": "..."}].
+    Used to discover *all* connected repos, not just ones a webhook has fired for.
+    """
+    app_jwt = _generate_app_jwt()
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/app/installations",
+            headers={"Authorization": f"Bearer {app_jwt}", "Accept": "application/vnd.github+json"},
+        )
+        response.raise_for_status()
+        installations = response.json()
+
+    return [
+        {
+            "id": inst["id"],
+            "account_login": inst.get("account", {}).get("login"),
+            "account_avatar_url": inst.get("account", {}).get("avatar_url"),
+        }
+        for inst in installations
+    ]
+
+
+async def list_installation_repositories(installation_id: int, token: str) -> list[dict]:
+    """All repos a single installation grants access to (paginated, capped at 100)."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/installation/repositories",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            params={"per_page": 100},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    return [
+        {
+            "full_name": repo["full_name"],
+            "name": repo["name"],
+            "owner": repo["owner"]["login"],
+            "private": repo["private"],
+            "html_url": repo["html_url"],
+            "default_branch": repo.get("default_branch"),
+        }
+        for repo in data.get("repositories", [])
+    ]
+
+
+async def list_pull_requests(owner: str, repo: str, token: str, per_page: int = 15) -> list[dict]:
+    """
+    Most recently updated pull requests for a repo (any state), newest first —
+    used to backfill analysis for PRs that existed before the App was installed.
+    """
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            params={"state": "all", "sort": "updated", "direction": "desc", "per_page": per_page},
+        )
+        response.raise_for_status()
+        pulls = response.json()
+
+    return [
+        {
+            "number": pr["number"],
+            "title": pr["title"],
+            "head_sha": pr["head"]["sha"],
+            "merged": pr.get("merged_at") is not None,
+            "state": pr["state"],
+            "user_login": pr["user"]["login"],
+            "user_avatar_url": pr["user"].get("avatar_url"),
+        }
+        for pr in pulls
+    ]
+
+
 async def get_installation_token(installation_id: int) -> str:
     """Exchanges the App JWT for a token scoped to one installation (i.e. one account/org)."""
     app_jwt = _generate_app_jwt()

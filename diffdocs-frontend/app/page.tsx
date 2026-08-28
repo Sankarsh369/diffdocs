@@ -9,14 +9,11 @@ import {
   ShieldCheck,
   AlertTriangle,
   Activity,
-  Terminal,
   RefreshCw,
   FileCode,
   CheckCircle2,
   AlertCircle,
   Sliders,
-  X,
-  ArrowRight,
   User,
   GitBranch,
   KeyRound,
@@ -66,10 +63,6 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [selectedPr, setSelectedPr] = useState<any>(null);
   const [stats, setStats] = useState({ total: 0, highRisk: 0, mediumRisk: 0, avgRisk: "Low" });
-
-  // 📁 REPOSITORY INTERACTION STATES
-  const [dynamicRepos, setDynamicRepos] = useState<any[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // 👥 TEAM ALLOCATION STATE — real authored/reviewed data from GitHub, fetched separately
   const [realTeamLoad, setRealTeamLoad] = useState<any[]>([]);
@@ -138,20 +131,6 @@ export default function DashboardHome() {
           };
         }).reverse();
         setChartData(processedChart);
-
-        const repoCounts: Record<string, number> = {};
-        rawData.forEach((item: any) => {
-          if (item.repo_identifier) {
-            repoCounts[item.repo_identifier] = (repoCounts[item.repo_identifier] || 0) + 1;
-          }
-        });
-
-        const aggregatedRepos = Object.keys(repoCounts).map((repoName) => ({
-          name: repoName.split("/")[1] || repoName,
-          fullName: repoName,
-          commitsCount: repoCounts[repoName]
-        }));
-        setDynamicRepos(aggregatedRepos);
 
         const highRiskCount = rawData.filter((item: any) => item.analysis?.estimated_risk === "High").length;
         const mediumRiskCount = rawData.filter((item: any) => item.analysis?.estimated_risk === "Medium").length;
@@ -554,7 +533,7 @@ export default function DashboardHome() {
           {/* VIEW 2: REPOSITORIES CONNECTED REGISTRY                   */}
           {/* ========================================================= */}
           {activeTab === "repositories" && (
-              <RepositoriesTab dynamicRepos={dynamicRepos} />
+              <RepositoriesTab sessionToken={sessionToken} />
             )}
           {/* ========================================================= */}
           {/* VIEW 3: REAL-DEAL TEAM COGNITIVE LOAD ANALYTICS          */}
@@ -754,51 +733,6 @@ export default function DashboardHome() {
 
         </div>
       </main>
-
-      {/* ========================================================= */}
-      {/* 🔮 ULTRA-PREMIUM GLASSMORPHIC HUD INSTALLATION OVERLAY     */}
-      {/* ========================================================= */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
-            
-            <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/40">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center">
-                  <Terminal className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Connect New Workspace Namespace</h3>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">Integrate isolated repository hooks into the core engine.</p>
-                </div>
-              </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 rounded-lg transition-colors cursor-pointer">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5 flex-1 text-xs text-left">
-              <div className="space-y-2">
-                <label className="font-semibold text-zinc-300">VCS Repository Path Namespace</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g., Sankarsh369/production-api-service" 
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-zinc-300 placeholder-zinc-600 font-mono focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="p-4 bg-zinc-900/40 border-t border-zinc-800 flex items-center justify-end gap-3">
-              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 font-semibold rounded-xl transition-all cursor-pointer">Cancel</button>
-              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 font-semibold rounded-xl text-white shadow-lg shadow-indigo-600/10 flex items-center gap-1.5 group transition-all cursor-pointer">
-                Initialize Pipeline 
-                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       <style jsx global>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

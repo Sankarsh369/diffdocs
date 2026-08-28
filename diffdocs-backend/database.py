@@ -81,6 +81,11 @@ class MongoDatabaseManager:
 
         return records
 
+    async def get_commit_counts_by_repo(self) -> Dict[str, int]:
+        """Number of cached analyses per repo_identifier, across the full collection (not just the latest 100)."""
+        cursor = self.collection.aggregate([{"$group": {"_id": "$repo_identifier", "count": {"$sum": 1}}}])
+        return {doc["_id"]: doc["count"] async for doc in cursor if doc["_id"]}
+
     async def get_team_workload(self) -> List[Dict[str, Any]]:
         """
         Aggregates real per-contributor workload from stored analyses: who

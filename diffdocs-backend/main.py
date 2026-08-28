@@ -44,6 +44,9 @@ from github_app import (
     fetch_pull_request_diff,
     fetch_pull_request_reviews,
     get_installation_token,
+    list_installation_repositories,
+    list_installations,
+    list_pull_requests,
 )
 import auth as auth_module
 
@@ -427,6 +430,94 @@ async def get_team_workload(current_user: dict = Depends(auth_module.get_current
     except Exception as err:
         print(f"🚨 Team workload compilation failure: {str(err)}")
         raise HTTPException(status_code=500, detail="Failed to compute team workload.")
+
+
+# ==========================================
+# 📁 REAL CONNECTED REPOSITORIES + PR BACKFILL
+# ==========================================
+async def _find_installation_for_owner(owner: str) -> Optional[int]:
+    """Finds which of the App's installations covers a given account/org login."""
+    installations = await list_installations()
+    for installation in installations:
+        if installation["account_login"] and installation["account_login"].lower() == owner.lower():
+            return installation["id"]
+    return None
+
+
+@app.get("/api/repositories", status_code=status.HTTP_200_OK)
+async def get_connected_repositories(current_user: dict = Depends(auth_module.get_current_user)):
+    """
+    Every repo the GitHub App is actually installed on, across every
+    installation — not just the ones that happen to already have an analyzed
+    commit. Cross-referenced with real commit counts where available.
+    """
+    try:
+        commit_counts = await db_manager.get_commit_counts_by_repo()
+        repositories = []
+
+        for installation in await list_installations():
+            token = await get_installation_token(installation["id"])
+            for repo in await list_installation_repositories(installation["id"], token):
+                repositories.append({
+                    **repo,
+                    "commits_analyzed": commit_counts.get(repo["full_name"], 0),
+                })
+
+        return {"status": "success", "count": len(repositories), "data": repositories}
+    except Exception as err:
+        print(f"🚨 Repository listing failure: {str(err)}")
+        raise HTTPException(status_code=500, detail="Failed to list connected repositories.")
+
+
+async def _backfill_repository(owner: str, repo: str, installation_id: int):
+    """Background task: analyzes recent existing PRs a repo already had before/without a fresh push event."""
+    try:
+        token = await get_installation_token(installation_id)
+        pull_requests = await list_pull_requests(owner, repo, token, per_page=15)
+        repo_full_name = f"{owner}/{repo}"
+
+        for pr in pull_requests:
+            if await db_manager.get_cached_summary(pr["head_sha"]):
+                continue  # already analyzed — cache does the dedup, but skip the API calls too
+
+            try:
+                diff_content = await fetch_pull_request_diff(owner, repo, pr["number"], token)
+                author = {"login": pr["user_login"], "avatar_url": pr["user_avatar_url"]}
+                await orchestrate_webhook_pipeline(
+                    repo=repo_full_name, sha=pr["head_sha"], diff_content=diff_content,
+                    author=author, pr_number=pr["number"],
+                )
+                if pr["merged"]:
+                    reviews = await fetch_pull_request_reviews(owner, repo, pr["number"], token)
+                    reviewers = list({r["login"]: r for r in reviews}.values())
+                    await db_manager.attach_reviewers(commit_sha=pr["head_sha"], reviewers=reviewers)
+            except Exception as pr_err:
+                print(f"🚨 Backfill failed for {repo_full_name}#{pr['number']}: {str(pr_err)}")
+                continue  # one bad PR shouldn't stop the rest of the backfill
+
+        print(f"✅ Backfill complete for {repo_full_name}: {len(pull_requests)} PR(s) checked.")
+    except Exception as err:
+        print(f"🚨 Repository backfill failure for {owner}/{repo}: {str(err)}")
+
+
+@app.post("/api/repositories/{owner}/{repo}/sync", status_code=status.HTTP_202_ACCEPTED)
+async def sync_repository(
+    owner: str,
+    repo: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(auth_module.get_current_user),
+):
+    """
+    Backfills analysis for a repo's existing pull requests (up to the 15 most
+    recently updated) — for repos that had activity before the App was
+    installed, or that only ever used PRs rather than direct pushes.
+    """
+    installation_id = await _find_installation_for_owner(owner)
+    if installation_id is None:
+        raise HTTPException(status_code=404, detail=f"The GitHub App isn't installed on '{owner}'.")
+
+    background_tasks.add_task(_backfill_repository, owner, repo, installation_id)
+    return {"status": "accepted", "detail": f"Backfilling recent pull requests for {owner}/{repo} in the background."}
 
 
 # ==========================================
