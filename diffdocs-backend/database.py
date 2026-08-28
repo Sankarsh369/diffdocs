@@ -86,13 +86,17 @@ class MongoDatabaseManager:
         cursor = self.collection.aggregate([{"$group": {"_id": "$repo_identifier", "count": {"$sum": 1}}}])
         return {doc["_id"]: doc["count"] async for doc in cursor if doc["_id"]}
 
-    async def get_team_workload(self) -> List[Dict[str, Any]]:
+    async def get_team_workload(self, repo_identifier: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Aggregates real per-contributor workload from stored analyses: who
         authored what (and at what risk level), and who actually reviewed it
         on GitHub — no fictional teammates, no guessed assignments.
+
+        Pass `repo_identifier` (e.g. "owner/repo") to scope this to one
+        connected repo instead of blending every repo together.
         """
-        cursor = self.collection.find({}, {"analysis.estimated_risk": 1, "author": 1, "reviewers": 1})
+        query = {"repo_identifier": repo_identifier} if repo_identifier else {}
+        cursor = self.collection.find(query, {"analysis.estimated_risk": 1, "author": 1, "reviewers": 1})
         records = await cursor.to_list(length=500)
 
         contributors: Dict[str, Dict[str, Any]] = {}

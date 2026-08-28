@@ -445,14 +445,20 @@ async def get_all_repository_telemetry(current_user: dict = Depends(auth_module.
 
 
 @app.get("/api/team", status_code=status.HTTP_200_OK)
-async def get_team_workload(current_user: dict = Depends(auth_module.get_current_user)):
+async def get_team_workload(
+    repo: Optional[str] = None,
+    current_user: dict = Depends(auth_module.get_current_user),
+):
     """
     Real per-contributor authored/reviewed workload, derived from actual
     GitHub commit authors and PR reviewers — no fictional teammates.
+
+    Pass ?repo=owner/repo to scope this to one connected repo instead of
+    blending every connected repo's contributors together.
     """
     await _require_repo_access(current_user)
     try:
-        workload = await db_manager.get_team_workload()
+        workload = await db_manager.get_team_workload(repo_identifier=repo)
         return {"status": "success", "count": len(workload), "data": workload}
     except Exception as err:
         print(f"🚨 Team workload compilation failure: {str(err)}")

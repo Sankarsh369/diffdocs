@@ -69,9 +69,6 @@ export default function DashboardHome() {
   const [selectedPr, setSelectedPr] = useState<any>(null);
   const [stats, setStats] = useState({ total: 0, highRisk: 0, mediumRisk: 0, avgRisk: "Low" });
 
-  // 👥 TEAM ALLOCATION STATE — real authored/reviewed data from GitHub, fetched separately
-  const [realTeamLoad, setRealTeamLoad] = useState<any[]>([]);
-
   // 🎛️ CONFIGURATION SETTINGS STATE
   const [riskThreshold, setRiskThreshold] = useState(85);
   const [policyBlocking, setPolicyBlocking] = useState(false);
@@ -163,25 +160,9 @@ export default function DashboardHome() {
     }
   };
 
-  // Real per-contributor authored/reviewed load — computed server-side from
-  // actual GitHub commit authors and PR reviewers. No fictional teammates.
-  const fetchTeamWorkload = async () => {
-    if (!sessionToken) return;
-    try {
-      const response = await authorizedFetch("/api/team", sessionToken);
-      const result = await response.json();
-      if (result.status === "success") {
-        setRealTeamLoad(result.data);
-      }
-    } catch (error) {
-      console.error("🚨 Team workload fetch failed:", error);
-    }
-  };
-
   useEffect(() => {
     if (sessionToken) {
       fetchLiveTelemetry();
-      fetchTeamWorkload();
     }
   }, [sessionToken]);
 
@@ -240,7 +221,7 @@ export default function DashboardHome() {
         onSignOut={handleSignOut}
         onRetry={async () => {
           setAccessDenied(false);
-          await Promise.all([fetchLiveTelemetry(), fetchTeamWorkload()]);
+          await fetchLiveTelemetry();
         }}
       />
     );
@@ -562,7 +543,7 @@ export default function DashboardHome() {
           {/* VIEW 3: REAL-DEAL TEAM COGNITIVE LOAD ANALYTICS          */}
           {/* ========================================================= */}
           {activeTab === "team" && (
-            <TeamView workload={realTeamLoad} />
+            <TeamView sessionToken={sessionToken} />
           )}
 
           {/* ========================================================= */}

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { AlertTriangle, Users } from "lucide-react";
 import {
   XAxis,
@@ -12,6 +12,7 @@ import {
   Bar,
   Legend
 } from "recharts";
+import { authorizedFetch } from "../lib/auth";
 
 interface RiskCounts {
   High: number;
@@ -27,11 +28,45 @@ interface Contributor {
   loadScore: number;
 }
 
-interface TeamViewProps {
-  workload: Contributor[];
+interface RepoOption {
+  full_name: string;
+  commits_analyzed: number;
 }
 
-export default function TeamView({ workload }: TeamViewProps) {
+interface TeamViewProps {
+  sessionToken: string;
+}
+
+export default function TeamView({ sessionToken }: TeamViewProps) {
+  const [workload, setWorkload] = useState<Contributor[]>([]);
+  const [repoOptions, setRepoOptions] = useState<RepoOption[]>([]);
+  // "" means "All connected repositories" (blended view)
+  const [selectedRepo, setSelectedRepo] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authorizedFetch("/api/repositories", sessionToken)
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.status === "success") setRepoOptions(result.data);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionToken]);
+
+  useEffect(() => {
+    setLoading(true);
+    const query = selectedRepo ? `?repo=${encodeURIComponent(selectedRepo)}` : "";
+    authorizedFetch(`/api/team${query}`, sessionToken)
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.status === "success") setWorkload(result.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionToken, selectedRepo]);
+
   const chartData = workload.map((c) => ({
     name: c.login,
     highRiskPrs: c.authored.High + c.reviewed.High,
@@ -47,19 +82,36 @@ export default function TeamView({ workload }: TeamViewProps) {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      <div className="border-b border-zinc-800 pb-5">
-        <h1 className="text-2xl font-bold tracking-tight text-white">Team Cognitive Load Analytics</h1>
-        <p className="text-sm text-zinc-400 mt-1">
-          Real commit authors and PR reviewers from GitHub — isolating reviewer distribution vulnerabilities and
-          tracking workload saturation lines.
-        </p>
+      <div className="border-b border-zinc-800 pb-5 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Team Cognitive Load Analytics</h1>
+          <p className="text-sm text-zinc-400 mt-1">
+            Real commit authors and PR reviewers from GitHub — isolating reviewer distribution vulnerabilities and
+            tracking workload saturation lines.
+          </p>
+        </div>
+
+        {repoOptions.length > 0 && (
+          <select
+            value={selectedRepo}
+            onChange={(e) => setSelectedRepo(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500/40 cursor-pointer"
+          >
+            <option value="">All connected repositories</option>
+            {repoOptions.map((repo) => (
+              <option key={repo.full_name} value={repo.full_name}>
+                {repo.full_name} ({repo.commits_analyzed})
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
-      {workload.length === 0 ? (
+      {!loading && workload.length === 0 ? (
         <div className="border border-dashed border-zinc-800 rounded-2xl py-16 flex flex-col items-center justify-center text-center gap-3">
           <Users className="h-6 w-6 text-zinc-600" />
           <div>
-            <p className="text-sm font-semibold text-zinc-300">No contributor data yet</p>
+            <p className="text-sm font-semibold text-zinc-300">No contributor data yet{selectedRepo ? ` for ${selectedRepo}` : ""}</p>
             <p className="text-xs text-zinc-500 mt-1 max-w-sm">
               This fills in automatically once the GitHub App analyzes real pushes and pull requests —
               authored commits show up immediately, reviewer data appears once a PR is merged.
@@ -76,8 +128,9 @@ export default function TeamView({ workload }: TeamViewProps) {
                 <h4 className="text-xs font-bold uppercase tracking-wider text-rose-400">Single Point of Failure (SPOF) Detected</h4>
                 <p className="text-sm text-zinc-300 mt-1 leading-relaxed">
                   <span className="font-semibold">@{topLoad.login}</span> is currently authoring or reviewing{" "}
-                  <span className="font-semibold">100% of all high-complexity changes</span>. This concentration
-                  introduces burnout vectors and structural bottleneck risks to active deployment cadences.
+                  <span className="font-semibold">100% of all high-complexity changes</span>
+                  {selectedRepo ? ` in ${selectedRepo}` : ""}. This concentration introduces burnout vectors and
+                  structural bottleneck risks to active deployment cadences.
                 </p>
               </div>
             </div>
