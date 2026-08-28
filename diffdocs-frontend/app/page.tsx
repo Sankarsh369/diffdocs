@@ -417,8 +417,19 @@ export default function DashboardHome() {
                       </div>
                       {selectedPr.analysis?.bug_fixes?.length > 0 ? (
                         <ul className="space-y-2">
-                          {selectedPr.analysis.bug_fixes.map((bug: string, index: number) => (
-                            <li key={index} className="text-xs text-zinc-300 flex items-start gap-2.5 leading-relaxed"><span className="text-emerald-500 font-bold shrink-0 text-sm">•</span> {bug}</li>
+                          {/* Each entry is a structured ComponentChange object from the backend
+                              ({file_path, action, summary, justification, operational_impact}),
+                              not a plain string — render its fields, don't render the object itself. */}
+                          {selectedPr.analysis.bug_fixes.map((bug: any, index: number) => (
+                            <li key={index} className="text-xs text-zinc-300 flex items-start gap-2.5 leading-relaxed">
+                              <span className="text-emerald-500 font-bold shrink-0 text-sm">•</span>
+                              <span>
+                                {typeof bug === "object" && bug.file_path && (
+                                  <span className="font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded mr-1.5 text-[11px]">{bug.file_path}</span>
+                                )}
+                                {typeof bug === "string" ? bug : (bug.summary ?? "")}
+                              </span>
+                            </li>
                           ))}
                         </ul>
                       ) : <p className="text-xs text-zinc-500 italic py-2">No structural bugs flagged inside this delta scope.</p>}
