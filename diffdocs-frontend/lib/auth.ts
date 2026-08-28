@@ -13,10 +13,27 @@ const STORAGE_KEY = "diffdocs_session_token";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+export interface SocialAccount {
+  provider: string | null;
+  url: string | null;
+}
+
 export interface DiffDocsUser {
   login: string;
   name: string;
   avatar_url: string | null;
+  // Everything below is genuinely available from GitHub's own profile data —
+  // note there is no date of birth, gender, or age in GitHub's data model,
+  // so those fields simply don't exist here.
+  email?: string | null;
+  bio?: string | null;
+  company?: string | null;
+  location?: string | null;
+  blog?: string | null;
+  followers?: number | null;
+  public_repos?: number | null;
+  github_created_at?: string | null;
+  social_accounts?: SocialAccount[];
 }
 
 export function getStoredToken(): string | null {

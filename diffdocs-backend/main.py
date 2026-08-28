@@ -370,11 +370,24 @@ async def github_callback(state: str, code: Optional[str] = None, error: Optiona
 
 @app.get("/api/me", status_code=status.HTTP_200_OK)
 async def get_current_profile(current_user: dict = Depends(auth_module.get_current_user)):
-    """Returns the signed-in user's real GitHub profile, decoded from their session token."""
+    """
+    Returns the signed-in user's real GitHub profile, decoded from their
+    session token. Only fields GitHub actually has are included — there is
+    no date of birth, gender, or age in GitHub's data model.
+    """
     return {
         "login": current_user["login"],
         "name": current_user["name"],
         "avatar_url": current_user["avatar_url"],
+        "email": current_user.get("email"),
+        "bio": current_user.get("bio"),
+        "company": current_user.get("company"),
+        "location": current_user.get("location"),
+        "blog": current_user.get("blog"),
+        "followers": current_user.get("followers"),
+        "public_repos": current_user.get("public_repos"),
+        "github_created_at": current_user.get("github_created_at"),
+        "social_accounts": current_user.get("social_accounts", []),
     }
 
 

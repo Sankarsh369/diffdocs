@@ -103,7 +103,11 @@ authored or reviewed something the App has seen.
 ### Setting up "Sign in with GitHub"
 
 This is a **separate, minimal GitHub OAuth App** — not the GitHub App above. It only proves who
-the human is (`read:user` scope); it's never used to access any repo.
+the human is and reads their own profile (`read:user user:email` scope); it's never used to
+access any repo. GitHub has no concept of date of birth, gender, or age — there's no API for
+them because GitHub doesn't collect them, so the profile only ever includes real fields: email
+(if verified), bio, company, location, website, follower/repo counts, join date, and any social
+accounts (LinkedIn, X, Facebook, etc.) the user has linked on their own GitHub profile.
 
 1. Go to **[github.com/settings/applications/new](https://github.com/settings/applications/new)**.
 2. Fill in:

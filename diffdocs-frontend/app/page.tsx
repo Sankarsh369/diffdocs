@@ -20,6 +20,13 @@ import {
   User,
   GitBranch,
   KeyRound,
+  Mail,
+  Building2,
+  MapPin,
+  Link2,
+  CalendarDays,
+  Users,
+  FolderGit2,
   Search,       // ✨ Added for Global Filter Bar
   Download,     // ✨ Added for KPI Exporter
   Code,         // ✨ Added for Inline Diff Inspector
@@ -596,7 +603,77 @@ export default function DashboardHome() {
                     <span className="text-zinc-500 flex items-center gap-2"><GitBranch className="h-3.5 w-3.5" /> Session</span>
                     <span className="font-semibold text-zinc-300">Active (OAuth)</span>
                   </div>
+                  {user.email && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> Email</span>
+                      <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={user.email}>{user.email}</span>
+                    </div>
+                  )}
+                  {user.company && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><Building2 className="h-3.5 w-3.5" /> Company</span>
+                      <span className="font-semibold text-zinc-300 truncate max-w-[160px]">{user.company}</span>
+                    </div>
+                  )}
+                  {user.location && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><MapPin className="h-3.5 w-3.5" /> Location</span>
+                      <span className="font-semibold text-zinc-300 truncate max-w-[160px]">{user.location}</span>
+                    </div>
+                  )}
+                  {user.blog && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><Link2 className="h-3.5 w-3.5" /> Website</span>
+                      <a
+                        href={user.blog.startsWith("http") ? user.blog : `https://${user.blog}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-indigo-400 hover:text-indigo-300 truncate max-w-[160px]"
+                      >
+                        {user.blog}
+                      </a>
+                    </div>
+                  )}
+                  {user.github_created_at && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5" /> On GitHub since</span>
+                      <span className="font-semibold text-zinc-300">{new Date(user.github_created_at).toLocaleDateString(undefined, { year: "numeric", month: "short" })}</span>
+                    </div>
+                  )}
+                  {(user.followers != null || user.public_repos != null) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 flex items-center gap-2"><Users className="h-3.5 w-3.5" /> Followers / Repos</span>
+                      <span className="font-semibold text-zinc-300 flex items-center gap-1.5">
+                        {user.followers ?? 0}
+                        <FolderGit2 className="h-3 w-3 text-zinc-600 ml-1" />
+                        {user.public_repos ?? 0}
+                      </span>
+                    </div>
+                  )}
                 </div>
+
+                {user.bio && (
+                  <p className="text-xs text-zinc-400 leading-relaxed border-t border-zinc-800/60 pt-4 italic">&ldquo;{user.bio}&rdquo;</p>
+                )}
+
+                {user.social_accounts && user.social_accounts.length > 0 && (
+                  <div className="border-t border-zinc-800/60 pt-4 space-y-2">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-500">Connected accounts</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {user.social_accounts.map((account, i) => (
+                        <a
+                          key={i}
+                          href={account.url ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] font-semibold px-2 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-indigo-500/40 hover:text-indigo-400 transition-colors capitalize"
+                        >
+                          {account.provider ?? "link"}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <button
                   onClick={handleSignOut}
