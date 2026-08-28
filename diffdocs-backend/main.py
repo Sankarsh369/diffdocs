@@ -395,13 +395,39 @@ async def get_current_profile(current_user: dict = Depends(auth_module.get_curre
 
 
 # ==========================================
-# 📊 DASHBOARD DATA (requires sign-in)
+# 🔐 ACCESS CONTROL: scope data to whoever actually installed the App
+# ==========================================
+async def _installation_account_logins() -> set:
+    installations = await list_installations()
+    return {i["account_login"].lower() for i in installations if i.get("account_login")}
+
+
+async def _require_repo_access(current_user: dict):
+    """
+    This deployment's commit/repo/team data belongs to whichever GitHub
+    account(s) actually installed the App — being signed in proves who you
+    are, not that you're entitled to see someone else's connected repos.
+    Without this check, ANY GitHub user who signs in would see the App
+    owner's private data, since none of these endpoints otherwise filter by
+    who's asking.
+    """
+    allowed = await _installation_account_logins()
+    if current_user["login"].lower() not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your GitHub account has no repositories connected to this DiffDocs instance.",
+        )
+
+
+# ==========================================
+# 📊 DASHBOARD DATA (requires sign-in + repo access)
 # ==========================================
 @app.get("/api/telemetry", status_code=status.HTTP_200_OK)
 async def get_all_repository_telemetry(current_user: dict = Depends(auth_module.get_current_user)):
     """
     Dashboard extraction gateway fetching historical analysis telemetry for frontend visualization.
     """
+    await _require_repo_access(current_user)
     try:
         # Pull records out of MongoDB Atlas via your global singleton pool manager
         historical_records = await db_manager.get_all_summaries()
@@ -424,6 +450,7 @@ async def get_team_workload(current_user: dict = Depends(auth_module.get_current
     Real per-contributor authored/reviewed workload, derived from actual
     GitHub commit authors and PR reviewers — no fictional teammates.
     """
+    await _require_repo_access(current_user)
     try:
         workload = await db_manager.get_team_workload()
         return {"status": "success", "count": len(workload), "data": workload}
@@ -451,6 +478,7 @@ async def get_connected_repositories(current_user: dict = Depends(auth_module.ge
     installation — not just the ones that happen to already have an analyzed
     commit. Cross-referenced with real commit counts where available.
     """
+    await _require_repo_access(current_user)
     try:
         commit_counts = await db_manager.get_commit_counts_by_repo()
         repositories = []
@@ -512,6 +540,8 @@ async def sync_repository(
     recently updated) — for repos that had activity before the App was
     installed, or that only ever used PRs rather than direct pushes.
     """
+    await _require_repo_access(current_user)
+
     installation_id = await _find_installation_for_owner(owner)
     if installation_id is None:
         raise HTTPException(status_code=404, detail=f"The GitHub App isn't installed on '{owner}'.")

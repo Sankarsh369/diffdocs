@@ -48,6 +48,7 @@ import {
   getStoredToken,
 } from "../lib/auth";
 import SignInScreen from "../components/SignInScreen";
+import AccessDeniedScreen from "../components/AccessDeniedScreen";
 
 export default function DashboardHome() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -56,6 +57,10 @@ export default function DashboardHome() {
   const [user, setUser] = useState<DiffDocsUser | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  // True when the signed-in GitHub account has no repositories connected to
+  // this DiffDocs instance — this data belongs to whoever installed the
+  // GitHub App, not to every GitHub user who happens to sign in.
+  const [accessDenied, setAccessDenied] = useState(false);
 
   // ⚡ SYSTEM LIVE DATA STATE
   const [telemetry, setTelemetry] = useState<any[]>([]);
@@ -101,6 +106,7 @@ export default function DashboardHome() {
     clearToken();
     setSessionToken(null);
     setUser(null);
+    setAccessDenied(false);
     setActiveTab("overview");
   };
 
@@ -109,6 +115,10 @@ export default function DashboardHome() {
     setLoading(true);
     try {
       const response = await authorizedFetch("/api/telemetry", sessionToken);
+      if (response.status === 403) {
+        setAccessDenied(true);
+        return;
+      }
       const result = await response.json();
 
       if (result.status === "success" && result.data) {
@@ -221,6 +231,10 @@ export default function DashboardHome() {
 
   if (!user || !sessionToken) {
     return <SignInScreen />;
+  }
+
+  if (accessDenied) {
+    return <AccessDeniedScreen user={user} onSignOut={handleSignOut} />;
   }
 
   return (
