@@ -234,7 +234,16 @@ export default function DashboardHome() {
   }
 
   if (accessDenied) {
-    return <AccessDeniedScreen user={user} onSignOut={handleSignOut} />;
+    return (
+      <AccessDeniedScreen
+        user={user}
+        onSignOut={handleSignOut}
+        onRetry={async () => {
+          setAccessDenied(false);
+          await Promise.all([fetchLiveTelemetry(), fetchTeamWorkload()]);
+        }}
+      />
+    );
   }
 
   return (
